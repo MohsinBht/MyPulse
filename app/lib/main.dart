@@ -1,9 +1,10 @@
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 
 import 'screens/home_screen.dart';
 import 'screens/pairing_choice_screen.dart';
+import 'screens/welcome_screen.dart';
+import 'services/auth_service.dart';
 import 'services/user_service.dart';
 import 'theme.dart';
 
@@ -27,33 +28,47 @@ class MyPulseApp extends StatelessWidget {
   }
 }
 
-/// Routes to pairing or home depending on whether the signed-in user already
-/// belongs to a couple. Real account creation/sign-in (email, phone, Google…)
-/// is a separate concern not specified yet — this assumes FirebaseAuth
-/// already has a current user by the time this widget builds.
-class _AuthGate extends StatelessWidget {
+/// V1 identity: anonymous Firebase Auth + a first name, no password (see
+/// services/auth_service.dart). This gate signs the device in on first
+/// build, waits for a display name, then routes to pairing or home.
+class _AuthGate extends StatefulWidget {
   const _AuthGate();
 
   @override
+  State<_AuthGate> createState() => _AuthGateState();
+}
+
+class _AuthGateState extends State<_AuthGate> {
+  late final Future<String> _uidFuture = AuthService().ensureSignedIn();
+
+  @override
   Widget build(BuildContext context) {
-    final uid = FirebaseAuth.instance.currentUser?.uid;
-    if (uid == null) {
-      return const Scaffold(body: Center(child: Text('Connexion requise')));
-    }
-    return StreamBuilder<UserProfile>(
-      stream: UserService().watchProfile(uid),
-      builder: (context, snapshot) {
-        if (!snapshot.hasData) {
+    return FutureBuilder<String>(
+      future: _uidFuture,
+      builder: (context, uidSnapshot) {
+        if (!uidSnapshot.hasData) {
           return const Scaffold(body: Center(child: CircularProgressIndicator(color: MyPulseColors.accent)));
         }
-        final profile = snapshot.data!;
-        if (profile.coupleId == null) {
-          return const PairingChoiceScreen();
-        }
-        return StreamBuilder<String>(
-          stream: UserService().watchPartnerName(profile.coupleId!, uid),
-          builder: (context, partnerSnapshot) {
-            return HomeScreen(coupleId: profile.coupleId!, partnerName: partnerSnapshot.data ?? '…');
+        final uid = uidSnapshot.data!;
+        return StreamBuilder<UserProfile>(
+          stream: UserService().watchProfile(uid),
+          builder: (context, snapshot) {
+            if (!snapshot.hasData) {
+              return const Scaffold(body: Center(child: CircularProgressIndicator(color: MyPulseColors.accent)));
+            }
+            final profile = snapshot.data!;
+            if (profile.displayName.isEmpty) {
+              return WelcomeScreen(uid: uid);
+            }
+            if (profile.coupleId == null) {
+              return const PairingChoiceScreen();
+            }
+            return StreamBuilder<String>(
+              stream: UserService().watchPartnerName(profile.coupleId!, uid),
+              builder: (context, partnerSnapshot) {
+                return HomeScreen(coupleId: profile.coupleId!, partnerName: partnerSnapshot.data ?? '…');
+              },
+            );
           },
         );
       },

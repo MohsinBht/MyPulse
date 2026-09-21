@@ -20,7 +20,7 @@ ThemeData buildMyPulseTheme() {
     scaffoldBackgroundColor: MyPulseColors.background,
     colorScheme: ColorScheme.fromSeed(
       seedColor: MyPulseColors.accent,
-      background: MyPulseColors.background,
+      surface: MyPulseColors.background,
       primary: MyPulseColors.accent,
     ),
     fontFamily: 'Georgia',
