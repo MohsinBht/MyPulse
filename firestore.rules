@@ -1,0 +1,46 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isSelf(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+
+    function isCoupleMember(coupleId) {
+      return isSignedIn() &&
+        request.auth.uid in get(/databases/$(database)/documents/couples/$(coupleId)).data.memberUids;
+    }
+
+    match /users/{uid} {
+      allow read: if isSelf(uid) ||
+        (isSignedIn() && resource.data.coupleId != null &&
+         resource.data.coupleId == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.coupleId);
+      allow write: if isSelf(uid);
+    }
+
+    match /couples/{coupleId} {
+      // Read-only for its two members. Written only by Cloud Functions (Admin SDK bypasses rules) —
+      // totalSignals must never be settable by a client, it is the one stats counter the app exposes.
+      allow read: if isCoupleMember(coupleId);
+      allow write: if false;
+
+      match /signals/{signalId} {
+        // Read-only for both members. Never client-writable: the 5s cooldown is enforced inside the
+        // sendSignal Cloud Function, and a client-writable path would let a modified app bypass it.
+        allow read: if isCoupleMember(coupleId);
+        allow write: if false;
+      }
+    }
+
+    match /pairingCodes/{code} {
+      // No client access at all — generation and redemption only happen through
+      // generatePairingCode / redeemPairingCode, which need atomic checks a rule can't express.
+      allow read, write: if false;
+    }
+  }
+}
